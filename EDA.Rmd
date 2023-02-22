@@ -1,0 +1,56 @@
+---
+title: "EDA"
+author: "Victor M. Uribe"
+date: "2023-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(timetk)
+library(modeltime)
+```
+
+
+# EDA
+
+## success (predictor)
+```{r}
+ggplot(everest, aes(success)) + geom_bar()
+sum(is.na(everest$success))
+```
+
+## season
+```{r}
+ggplot(everest, aes(season)) + geom_bar()
+```
+
+
+```{r}
+everest %>% 
+  group_by(season) %>% 
+  plot_time_series(lubridate::ymd(year, truncated = 2L), age, 
+                   .facet_ncol = 2, .interactive = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

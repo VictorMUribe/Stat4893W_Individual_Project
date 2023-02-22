@@ -1,0 +1,54 @@
+---
+title: "LASSO FIT"
+author: "Victor M. Uribe"
+date: "2023-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+doParallel::registerDoParallel()
+
+log_fit <- log_wf %>% 
+  fit(everest_train)
+
+
+log_pred <- log_fit %>% 
+  predict(new_data = everest_test)  
+
+tmp <- factor(ifelse(log_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(tmp, everest_test[["success"]])
+```
+
+
+
+
+
+
+
+
+

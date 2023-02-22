@@ -1,0 +1,128 @@
+---
+title: "LOGISTIC FIT"
+author: "Victor M. Uribe"
+date: "2023-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+```
+
+
+
+
+
+
+
+
+
+
+# Logistic Regression
+```{r}
+log_spec <- logistic_reg() %>% 
+  set_engine("glm")
+
+log_rec <- recipe(success ~., everest_train) %>% 
+  step_normalize(all_numeric_predictors()) %>% 
+  step_impute_median(age) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
+  step_other(citizenship, expedition_role, threshold = .05)
+
+log_wf <- workflow() %>% 
+  add_model(log_spec) %>% 
+  add_recipe(log_rec)
+```
+
+
+```{r}
+doParallel::registerDoParallel()
+
+log_fit <- log_wf %>% 
+  fit(everest_train)
+
+log_pred <- log_fit %>% 
+  predict(new_data = everest_test)  
+
+tmp <- factor(ifelse(log_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(tmp, everest_test[["success"]])
+```
+
+
+
+
+
+
+```{r}
+cooksD <- cooks.distance(log_fit %>% extract_model())
+
+influential <- cooksD[(cooksD > (3 * mean(cooksD, na.rm = TRUE)))]
+names_of_influential <- names(influential)
+everest <- data.frame(everest)
+outliers <- everest[names_of_influential,]
+everest_clean <- everest %>% anti_join(outliers)
+```
+
+
+
+## Filtered Data Split
+```{r}
+set.seed(123)
+
+ever_split <- initial_split(everest_clean, prop = .7)
+ever_train <- training(ever_split)
+ever_test <- testing(ever_split)
+
+ever_fold <- vfold_cv(ever_train, strata = success)
+```
+
+
+
+
+
+
+# Filtered Logistic Regression
+```{r}
+fil_log_spec <- logistic_reg() %>% 
+  set_engine("glm")
+
+fil_log_rec <- recipe(success ~., ever_train) %>% 
+  step_normalize(all_numeric_predictors()) %>% 
+  step_impute_median(age) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
+  step_other(citizenship, expedition_role, threshold = .05)
+
+fil_log_wf <- workflow() %>% 
+  add_model(fil_log_spec) %>% 
+  add_recipe(fil_log_rec)
+```
+
+
+```{r}
+doParallel::registerDoParallel()
+
+fil_log_fit <- fil_log_wf %>% 
+  fit(ever_train)
+
+
+fil_log_pred <- fil_log_fit %>% 
+  predict(new_data = ever_test)  
+
+fil_tmp <- factor(ifelse(fil_log_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(fil_tmp, ever_test[["success"]])
+```
+
+
+
+
+
+
+
+
+
