@@ -1,0 +1,111 @@
+---
+title: "XGBOOST FIT"
+author: "Victor M. Uribe"
+date: "2023-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(finetune)
+```
+
+
+
+
+
+
+
+
+```{r}
+xgb_spec <- boost_tree(
+  mtry = tune(),
+  min_n = tune(),
+  trees = tune(),
+  loss_reduction = tune(),
+  learn_rate = tune()
+) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+
+xgb_rec <- recipe(success ~., everest_train) %>% 
+  step_normalize(all_numeric_predictors()) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
+  step_other(expedition_role, citizenship, threshold = .05) %>% 
+  step_dummy(all_nominal_predictors())
+
+
+xgb_wf <- workflow() %>% 
+  add_model(xgb_spec) %>% 
+  add_recipe(xgb_rec)
+```
+
+
+
+
+```{r}
+doParallel::registerDoParallel()
+set.seed(123)
+
+
+xgb_para <- parameters(
+  finalize(mtry(), everest_train),
+  trees(),
+  loss_reduction(),
+  learn_rate(),
+  min_n()#,
+  #finalize(sample_size(), everest_train)
+)
+
+
+xgb_grid <- grid_max_entropy(
+  xgb_para,
+  size = 20
+)
+
+
+xgb_tune <- tune_race_anova(
+  xgb_wf,
+  resamples = everest_fold,
+  grid = xgb_grid,
+  metrics = metric_set(roc_auc, sensitivity, specificity),
+  control = control_race(verbose_elim = TRUE)
+)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

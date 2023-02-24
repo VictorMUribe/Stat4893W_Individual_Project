@@ -13,47 +13,51 @@ expeditions <- fread('https://raw.githubusercontent.com/rfordatascience/tidytues
 
 
 
-members %>% glimpse()
-expeditions %>%  glimpse()
+#members %>% glimpse()
+#expeditions %>%  glimpse()
 #peaks %>% glimpse()
 
-data_temp <- full_join(members, expeditions)
+#data_temp <- full_join(members, expeditions)
 
-data_temp %>% glimpse()
+#data_temp %>% glimpse()
 
 
-VIM::aggr(data_temp, col = c("skyblue", "orange"))
+#VIM::aggr(data_temp, col = c("skyblue", "orange"))
 
-prop_na <- function(col){
-  sum(is.na(col))/length(col)  
-}
+#prop_na <- function(col){
+#  sum(is.na(col))/length(col)  
+#}
 
 # all the values that can be used for prediction since we can only impute 10%
-as.data.frame(sapply(data_temp, prop_na)) %>% 
-  filter(sapply(data_temp, prop_na) <= .10)
+#as.data.frame(sapply(data_temp, prop_na)) %>% 
+#  filter(sapply(data_temp, prop_na) <= .10)
 
 
-everest <- data_temp %>% 
-  filter(peak_name == "Everest") %>% 
-  select(
-    c(year, season, sex, age, citizenship, expedition_role, hired,
-      success, solo, oxygen_used, died, injured)
-  ) %>% 
+
+everest <- members %>% # should have an age
+  filter(age != 'NA' & peak_name == "Everest") %>% 
+  select(-c(peak_id,peak_name,expedition_id,member_id, death_height_metres,
+            injury_height_metres, highpoint_metres, death_cause,injury_type)) %>%
   mutate(
+    #death_height_metres = ifelse(death_height_metres == NA, 0, death_height_metres), # issue wiith levels for some reason
+    #injury_height_metres = ifelse(injury_height_metres == NA, 0, injury_height_metres), # gives leveling issue 
+    #highpoint_metres = ifelse(highpoint_metres == 'NA', 0, highpoint_metres), # thows off the p values
     season = factor(season),
     sex = factor(sex),
-    citizenship = factor(citizenship),
-    expedition_role = factor(expedition_role),
+    #citizenship = factor(citizenship), # not significant after testing
+    #expedition_role = factor(expedition_role), # not significant after testing
     hired = factor(hired), 
-    success = factor(success),
+    success = factor(success), # value being predicted
     solo = factor(solo),
     oxygen_used = factor(oxygen_used),
     died = factor(died),
+    #death_cause = factor(death_cause), # issue
     injured = factor(injured)#,
+    #injury_type = factor(injury_type) # issue with levels
   )
   
 
-everest %>% names()
+#everest %>% names()
 
 
 

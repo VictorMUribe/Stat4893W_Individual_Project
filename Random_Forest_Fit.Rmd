@@ -1,0 +1,116 @@
+---
+title: "RANDOM FOREST FIT"
+author: "Victor M. Uribe"
+date: "2023-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(finetune)
+```
+
+
+
+
+
+
+```{r}
+ran_spec <- rand_forest(
+  mtry = tune(),
+  min_n = tune(),
+  trees = tune()
+) %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+ran_rec <- recipe(success~., everest_train) %>% 
+  step_other(expedition_role, citizenship, threshold = .05) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
+  step_dummy(all_nominal_predictors())
+
+ran_wf <- workflow() %>% 
+  add_model(ran_spec) %>% 
+  add_recipe(ran_rec)
+
+```
+
+
+```{r}
+doParallel::registerDoParallel()
+
+set.seed(123)
+
+ran_para <- parameters(
+  finalize(mtry(), everest_train),
+  min_n(),
+  trees()
+)
+
+
+ran_grid <- grid_max_entropy(
+  ran_para,
+  size = 20
+)
+
+ran_tune <- tune_race_anova(
+  ran_wf,
+  resamples = everest_fold,
+  grid = ran_grid,
+  metrics = metric_set(roc_auc),
+  control = control_race(verbose_elim = TRUE)
+)
+
+```
+
+
+
+```{r}
+ran_tune %>% autoplot()
+```
+
+
+
+```{r}
+best_run <- ran_tune %>% 
+  select_best("roc_auc")
+
+fin_ran_wf <- finalize_workflow(
+  ran_wf,
+  best_run
+)
+  
+
+fit_ran <- fin_ran_wf %>% 
+  fit(everest_train)
+```
+
+
+
+
+
+```{r}
+doParallel::registerDoParallel()
+
+
+ran_pred <- fit_ran %>% 
+  predict(new_data = everest_test) 
+
+
+ran_tmp <- factor(ifelse(ran_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(ran_tmp, everest_test[["success"]])
+```
+
+
+
+
+
+
+
+
