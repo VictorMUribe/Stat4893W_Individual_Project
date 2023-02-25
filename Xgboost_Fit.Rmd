@@ -36,9 +36,8 @@ xgb_spec <- boost_tree(
 
 
 xgb_rec <- recipe(success ~., everest_train) %>% 
-  step_normalize(all_numeric_predictors()) %>% 
-  step_impute_knn(all_nominal_predictors()) %>% 
   step_other(expedition_role, citizenship, threshold = .05) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
   step_dummy(all_nominal_predictors())
 
 
@@ -82,19 +81,51 @@ xgb_tune <- tune_race_anova(
 ```
 
 
+```{r}
+xgb_tune %>% autoplot()
+```
+
+
+```{r}
+best_xgb <- xgb_tune %>% 
+  select_best("roc_auc")
+
+fin_xgb_wf <- finalize_workflow(
+  xgb_wf,
+  best_xgb
+)
+  
+
+fit_xgb <- fin_xgb_wf %>% 
+  fit(everest_train)
+```
+
+
+
+
+
+```{r}
+doParallel::registerDoParallel()
+
+
+xgb_pred <- fit_xgb %>% 
+  predict(new_data = everest_test) 
+
+
+xgb_tmp <- factor(ifelse(xgb_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(xgb_tmp, everest_test[["success"]])
+```
 
 
 
 
 
 
-
-
-
-
-
-
-
+|     Roc Auc     | Accuracy | Sensitivity | Specificity
+|---              |---       |---          |---   
+|  Lasso          |  0.8703  |    0.7939   |  0.9554     
+|  Random Forest  |  0.8756  |    0.8156   |  0.9423
+|  xgboost        |  0.8733  |    0.8132   |  0.9403
 
 
 

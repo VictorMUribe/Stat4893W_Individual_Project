@@ -24,13 +24,16 @@ library(tidymodels)
 
 
 
+
 # Logistic Regression
 ```{r}
 log_spec <- logistic_reg() %>% 
   set_engine("glm")
 
 log_rec <- recipe(success ~., everest_train) %>% 
-  step_normalize(all_numeric_predictors())
+  step_other(expedition_role, citizenship, threshold = .05) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
+  step_dummy(all_nominal_predictors())
 
 log_wf <- workflow() %>% 
   add_model(log_spec) %>% 
@@ -52,23 +55,76 @@ caret::confusionMatrix(tmp, everest_test[["success"]])
 ```
 
 
+Accuracy : 0.8714 
+Sensitivity : 0.7966          
+Specificity : 0.9547
 
 
 
 
 
+# Filtered
+
+```{r include=FALSE}
+# outliers
+
+everest <- as.data.frame(everest)
+
+test_mod <- glm(success ~., data = everest, family = "binomial") 
+cooksD <- cooks.distance(test_mod)
+influential <- cooksD[(cooksD > (3 * mean(cooksD, na.rm = TRUE)))]
+names_of_influential <- names(influential)
+outliers <- everest[names_of_influential,]
+everest_clean <- everest %>% anti_join(outliers)
+everest_filtered <- data.table(everest_clean)
+```
+
+
+
+```{r}
+set.seed(123)
+
+filtered_split <- initial_split(everest_filtered, prop = .7)
+filtered_train <- training(filtered_split)
+filtered_test <- testing(filtered_split)
+
+filtered_fold <- vfold_cv(filtered_train, strata = success)
+```
 
 
 
 
+```{r}
+fil_spec <- logistic_reg() %>% 
+  set_engine("glm")
+
+fil_rec <- recipe(success ~., filtered_train) %>% 
+  step_other(expedition_role, citizenship, threshold = .05) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
+  step_dummy(all_nominal_predictors())
+
+fil_wf <- workflow() %>% 
+  add_model(fil_spec) %>% 
+  add_recipe(fil_rec)
+```
 
 
+```{r}
+doParallel::registerDoParallel()
 
+fil_fit <- fil_wf %>% 
+  fit(filtered_train)
 
+fil_pred <- fil_fit %>% 
+  predict(filtered_test)  
 
+fil_tmp <- factor(ifelse(fil_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(fil_tmp, filtered_test[["success"]])
+```
 
-
-
+   Accuracy : 0.8726
+Sensitivity : 0.8014          
+Specificity : 0.9524 
 
 
 

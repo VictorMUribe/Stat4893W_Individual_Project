@@ -26,6 +26,7 @@ lass_spec <- logistic_reg(penalty = tune(), mixture = 1) %>%
 
 lass_rec <- recipe(success ~., everest_train) %>%
   step_other(expedition_role, citizenship, threshold = .05) %>% 
+  step_impute_knn(all_nominal_predictors()) %>% 
   step_dummy(all_nominal_predictors())
   
 lass_wf <- workflow() %>%
