@@ -18,11 +18,44 @@ library(tidymodels)
 
 
 
+```{r}
+members <- data.table::fread('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-22/members.csv')
+
+everest <- members %>% # should have an age
+  filter(age != 'NA' & peak_name == "Everest" & expedition_role == "Climber") %>% 
+  select(-c(peak_id,peak_name,expedition_id, member_id, expedition_role, death_height_metres,
+            injury_height_metres, highpoint_metres, death_cause, injury_type, hired, solo)) %>%
+  mutate(
+    #death_height_metres = ifelse(death_height_metres == NA, 0, death_height_metres), # issue wiith levels for some reason
+    #injury_height_metres = ifelse(injury_height_metres == NA, 0, injury_height_metres), # gives leveling issue 
+    #highpoint_metres = ifelse(highpoint_metres == 'NA', 0, highpoint_metres), # thows off the p values
+    season = factor(season),
+    sex = factor(sex),
+    citizenship = factor(citizenship), # not significant after testing
+    #expedition_role = factor(expedition_role), # not significant after testing
+    #hired = factor(hired), 
+    success = factor(success), # value being predicted
+    #solo = factor(solo),
+    oxygen_used = factor(oxygen_used),
+    died = factor(died),
+    #death_cause = factor(death_cause), # issue
+    injured = factor(injured)#,
+    #injury_type = factor(injury_type) # issue with levels
+  ) 
+```
 
 
 
+```{r}
+## Original Data Split
+set.seed(123)
 
+everest_split <- initial_split(everest, prop = .7)
+everest_train <- training(everest_split)
+everest_test <- testing(everest_split)
 
+everest_fold <- vfold_cv(everest_train, strata = success)
+```
 
 
 # Logistic Regression
@@ -31,14 +64,14 @@ log_spec <- logistic_reg() %>%
   set_engine("glm")
 
 log_rec <- recipe(success ~., everest_train) %>% 
-  step_other(expedition_role, citizenship, threshold = .05) %>% 
-  step_impute_knn(all_nominal_predictors()) %>% 
-  step_dummy(all_nominal_predictors())
+  step_other(citizenship, threshold = .7) #threshold = .025) #%>% 
+  #step_dummy(all_nominal_predictors())
 
 log_wf <- workflow() %>% 
   add_model(log_spec) %>% 
   add_recipe(log_rec)
 ```
+
 
 
 ```{r}
@@ -54,10 +87,67 @@ tmp <- factor(ifelse(log_pred == TRUE, TRUE, FALSE))
 caret::confusionMatrix(tmp, everest_test[["success"]])
 ```
 
+Accuracy : 0.8704 
+Sensitivity : 0.7970          
+Specificity : 0.9520
+            
 
-Accuracy : 0.8714 
-Sensitivity : 0.7966          
-Specificity : 0.9547
+
+
+```{r}
+log_fit %>% 
+  tidy() %>%
+  filter(p.value <= .05, term != "(Intercept)")
+```
+
+
+
+```{r}
+everest %>% 
+  ggplot(aes(x = age, fill = died)) + geom_histogram() + facet_wrap(~ success) 
+```
+
+
+
+
+
+
+            
+```{r}
+log_fit %>% pull_workflow_fit() %>% performance::check_model()
+```
+
+
+
+```{r}
+log_fit %>% pull_workflow_fit() %>% check_collinearity()
+```
+
+
+
+
+
+```{r}
+v3 <- vip::vip(log_fit %>% pull_workflow_fit() , aesthetic = list(fill = "lightblue")) + theme_minimal() + ggtitle("Logistic Regression")
+```
+
+
+
+
+
+Accuracy : 0.8529 
+Sensitivity : 0.8134        
+Specificity : 0.9236
+
+
+```{r}
+log_fit %>% 
+  tidy() %>% 
+  #filter(grepl("citizenship", term)) %>% 
+  filter(p.value < .05) 
+
+```
+
 
 
 
@@ -76,7 +166,7 @@ influential <- cooksD[(cooksD > (3 * mean(cooksD, na.rm = TRUE)))]
 names_of_influential <- names(influential)
 outliers <- everest[names_of_influential,]
 everest_clean <- everest %>% anti_join(outliers)
-everest_filtered <- data.table(everest_clean)
+everest_filtered <- data.table::data.table(everest_clean)
 ```
 
 
@@ -99,14 +189,16 @@ fil_spec <- logistic_reg() %>%
   set_engine("glm")
 
 fil_rec <- recipe(success ~., filtered_train) %>% 
-  step_other(expedition_role, citizenship, threshold = .05) %>% 
-  step_impute_knn(all_nominal_predictors()) %>% 
-  step_dummy(all_nominal_predictors())
+  step_other(citizenship, threshold = .7) #%>% 
+  #step_impute_knn(all_nominal_predictors()) %>% 
+  #step_dummy(all_nominal_predictors())
 
 fil_wf <- workflow() %>% 
   add_model(fil_spec) %>% 
   add_recipe(fil_rec)
 ```
+
+
 
 
 ```{r}
@@ -122,11 +214,51 @@ fil_tmp <- factor(ifelse(fil_pred == TRUE, TRUE, FALSE))
 caret::confusionMatrix(fil_tmp, filtered_test[["success"]])
 ```
 
-   Accuracy : 0.8726
+### threshold = .7
+Accuracy : 0.8503
+Sensitivity : 0.8015          
+Specificity : 0.9336
+
+
+
+### threshold = .5
+Accuracy : 0.8743 
+Sensitivity : 0.8035          
+Specificity : 0.9538 
+
+
+### threshold = .05
+Accuracy : 0.8726
 Sensitivity : 0.8014          
-Specificity : 0.9524 
+Specificity : 0.9524
 
 
+
+### threshold = .025
+Accuracy : 0.8727 
+Sensitivity : 0.8020          
+Specificity : 0.9521
+
+
+
+Accuracy : 0.8515
+Sensitivity : 0.8091          
+Specificity : 0.9241 
+
+
+
+
+```{r}
+fil_fit %>% 
+  tidy() %>% 
+  filter(p.value <= .05)
+```
+
+
+
+```{r}
+v4 <- vip::vip(fil_fit %>% pull_workflow_fit() , aesthetic = list(fill = "lightblue")) + theme_minimal() + ggtitle("Filtered Logistic Regression")
+```
 
 
 

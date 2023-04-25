@@ -13,6 +13,34 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(tidymodels)
+library(finetune)
+```
+
+
+```{r}
+members <- data.table::fread('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-22/members.csv')
+
+everest <- members %>% # should have an age
+  filter(age != 'NA' & peak_name == "Everest" & expedition_role == "Climber") %>% 
+  select(-c(peak_id,peak_name,expedition_id, member_id, expedition_role, death_height_metres,
+            injury_height_metres, highpoint_metres, death_cause, injury_type, hired, solo)) %>%
+  mutate(
+    #death_height_metres = ifelse(death_height_metres == NA, 0, death_height_metres), # issue wiith levels for some reason
+    #injury_height_metres = ifelse(injury_height_metres == NA, 0, injury_height_metres), # gives leveling issue 
+    #highpoint_metres = ifelse(highpoint_metres == 'NA', 0, highpoint_metres), # thows off the p values
+    season = factor(season),
+    sex = factor(sex),
+    citizenship = factor(citizenship), # not significant after testing
+    #expedition_role = factor(expedition_role), # not significant after testing
+    #hired = factor(hired), 
+    success = factor(success), # value being predicted
+    #solo = factor(solo),
+    oxygen_used = factor(oxygen_used),
+    died = factor(died),
+    #death_cause = factor(death_cause), # issue
+    injured = factor(injured)#,
+    #injury_type = factor(injury_type) # issue with levels
+  ) 
 ```
 
 
@@ -20,12 +48,25 @@ library(tidymodels)
 
 
 
+
+```{r}
+## Original Data Split
+set.seed(123)
+
+everest_split <- initial_split(everest, prop = .7)
+everest_train <- training(everest_split)
+everest_test <- testing(everest_split)
+
+everest_fold <- vfold_cv(everest_train, strata = success)
+```
+
+
 ```{r}
 lass_spec <- logistic_reg(penalty = tune(), mixture = 1) %>% 
   set_engine("glmnet")
 
 lass_rec <- recipe(success ~., everest_train) %>%
-  step_other(expedition_role, citizenship, threshold = .05) %>% 
+  step_other(citizenship, threshold = .05) %>% 
   step_impute_knn(all_nominal_predictors()) %>% 
   step_dummy(all_nominal_predictors())
   
@@ -37,56 +78,55 @@ lass_wf <- workflow() %>%
 
 
 ```{r}
-
 doParallel::registerDoParallel()
-
 set.seed(123)
 
-lambda_grid <- grid_regular(
-  penalty(),
-  levels = 20
+lass_para <- parameters(
+  penalty()
 )
 
-lass_tune <- tune_grid(
+lambda_grid <- grid_max_entropy(
+  lass_para,
+  size = 20
+)
+
+lass_tune <- tune_race_anova(
   lass_wf,
   resamples = everest_fold,
-  grid = lambda_grid
+  grid = lambda_grid,
+  metrics = metric_set(roc_auc, specificity)
 )
-
 ```
 
 
 ```{r}
-lass_tune %>% autoplot()
-```
-
-
-
-```{r}
-
 best_lambda <- lass_tune %>% 
   select_best("roc_auc")
-
 
 fin_lass_wf <- finalize_workflow(
   lass_wf,
   best_lambda
 )
 
-
 fit_lass <- fin_lass_wf %>% 
   fit(everest_train)
 
-
-fit_lass %>% 
-  tidy() %>% 
-  filter(estimate != 0)
+fit_lass %>%
+  tidy() %>%
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(x = reorder(term, abs(estimate)), y = abs(estimate))) +
+  geom_col(aes(fill = estimate == 0), width = 0.5) + 
+  coord_flip() + labs(x = "Variable", y = "Coefficient",
+                      title = "Lasso Coefficients") + theme_grey(base_size = 15)
 ```
 
+Since these belong to categories we would simply leave them
 
 
-
-
+```{r}
+fit_lass %>% extract_fit_engine() %>% 
+  vip::vip(aesthetics = list(fill = "skyblue"))
+```
 
 
 
@@ -100,6 +140,18 @@ lass_pred <- fit_lass %>%
 lass_tmp <- factor(ifelse(lass_pred == TRUE, TRUE, FALSE)) 
 caret::confusionMatrix(lass_tmp, everest_test[["success"]])
 ```
+
+
+Accuracy : 0.8516
+Sensitivity : 0.8065          
+Specificity : 0.9325
+
+
+
+
+
+
+
 
 
 

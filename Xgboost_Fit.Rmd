@@ -2,13 +2,12 @@
 title: "XGBOOST FIT"
 author: "Victor M. Uribe"
 date: "2023-01-05"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
 
 ```{r}
 library(tidyverse)
@@ -16,28 +15,63 @@ library(tidymodels)
 library(finetune)
 ```
 
+```{r}
+members <- data.table::fread('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-22/members.csv')
+
+everest <- members %>% # should have an age
+  filter(age != 'NA' & peak_name == "Everest" & expedition_role == "Climber") %>% 
+  select(-c(peak_id,peak_name,expedition_id, member_id, expedition_role, death_height_metres,
+            injury_height_metres, highpoint_metres, death_cause, injury_type, hired, solo)) %>%
+  mutate(
+    #death_height_metres = ifelse(death_height_metres == NA, 0, death_height_metres), # issue wiith levels for some reason
+    #injury_height_metres = ifelse(injury_height_metres == NA, 0, injury_height_metres), # gives leveling issue 
+    #highpoint_metres = ifelse(highpoint_metres == 'NA', 0, highpoint_metres), # thows off the p values
+    season = factor(season),
+    sex = factor(sex),
+    citizenship = factor(citizenship), # not significant after testing
+    #expedition_role = factor(expedition_role), # not significant after testing
+    #hired = factor(hired), 
+    success = factor(success), # value being predicted
+    #solo = factor(solo),
+    oxygen_used = factor(oxygen_used),
+    died = factor(died),
+    #death_cause = factor(death_cause), # issue
+    injured = factor(injured)#,
+    #injury_type = factor(injury_type) # issue with levels
+  ) 
+```
 
 
+```{r}
+everest$success %>% table()
+```
 
+```{r}
+## Original Data Split
+set.seed(123)
 
+everest_split <- initial_split(everest, prop = .7)
+everest_train <- training(everest_split)
+everest_test <- testing(everest_split)
 
-
+everest_fold <- vfold_cv(everest_train, strata = success)
+```
 
 ```{r}
 xgb_spec <- boost_tree(
   mtry = tune(),
   min_n = tune(),
   trees = tune(),
+  #tree_depth = tune(),
   loss_reduction = tune(),
   learn_rate = tune()
 ) %>% 
-  set_engine("xgboost") %>% 
+  set_engine("xgboost", objective = "binary:hinge") %>% 
   set_mode("classification")
 
 
-xgb_rec <- recipe(success ~., everest_train) %>% 
-  step_other(expedition_role, citizenship, threshold = .05) %>% 
-  step_impute_knn(all_nominal_predictors()) %>% 
+xgb_rec <- recipe(success ~., everest_train) %>%
+  step_other(citizenship, threshold = .05) %>% 
   step_dummy(all_nominal_predictors())
 
 
@@ -46,29 +80,24 @@ xgb_wf <- workflow() %>%
   add_recipe(xgb_rec)
 ```
 
-
-
-
 ```{r}
 doParallel::registerDoParallel()
 set.seed(123)
-
 
 xgb_para <- parameters(
   finalize(mtry(), everest_train),
   trees(),
   loss_reduction(),
   learn_rate(),
-  min_n()#,
+  min_n()
+  #tree_depth 
   #finalize(sample_size(), everest_train)
 )
-
 
 xgb_grid <- grid_max_entropy(
   xgb_para,
   size = 20
 )
-
 
 xgb_tune <- tune_race_anova(
   xgb_wf,
@@ -80,13 +109,12 @@ xgb_tune <- tune_race_anova(
 
 ```
 
-
 ```{r}
 xgb_tune %>% autoplot()
 ```
 
-
 ```{r}
+doParallel::registerDoParallel()
 best_xgb <- xgb_tune %>% 
   select_best("roc_auc")
 
@@ -95,11 +123,140 @@ fin_xgb_wf <- finalize_workflow(
   best_xgb
 )
   
-
 fit_xgb <- fin_xgb_wf %>% 
   fit(everest_train)
 ```
 
+```{r}
+doParallel::registerDoParallel()
+
+xgb_pred <- fit_xgb %>% 
+  predict(new_data = everest_test) 
+
+xgb_tmp <- factor(ifelse(xgb_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(xgb_tmp, everest_test[["success"]])
+```
+
+Accuracy : 0.8571 
+Sensitivity : 0.8303          
+Specificity : 0.9050 
+
+
+
+
+
+# Collapsing Categories to just show as "other" for all 
+
+```{r}
+#new_recipe <- recipe(success~., everest_train) %>%   
+#  step_other(citizenship, threshold = .7) %>% 
+#  step_dummy(all_nominal_predictors())
+
+#new_wf <- fin_xgb_wf %>% 
+#  remove_recipe()
+
+#new_wf <- new_wf %>% 
+#  add_recipe(new_recipe)
+
+#new_fit <- new_wf %>% 
+#  fit(everest_train)
+```
+
+```{r}
+#v2 <- vip::vip(new_fit %>% pull_workflow_fit(), aesthetic = list(fill = "lightblue")) + theme_minimal() + ggtitle("XGBoost")
+#v2
+```
+
+
+
+
+
+
+**threshold = .15:**
+
+* Accuracy: 0.8545
+* Sensitivity: 0.8203
+* Specificity: 0.9156
+
+**threshold = .10:**
+
+* Accuracy: 0.8545
+* Sensitivity: 0.8203
+* Specificity: 0.9156
+
+**threshold = .025:**
+
+* Accuracy: 0.8564
+* Sensitivity: 0.8243
+* Specificity: 0.9139
+
+**threshold = .05:**
+
+* Accuracy: 0.8567
+* Sensitivity: 0.8233
+* Specificity: 0.9165
+
+
+**threshold = .01:**
+
+* Accuracy: 0.8510
+* Sensitivity: 0.8164
+* Specificity: 0.9130
+
+**threshold = .005:**
+
+* Accuracy: 0.8459
+* Sensitivity: 0.7970
+* Specificity: 0.9334
+
+
+# Filtered
+
+```{r include=FALSE}
+# outliers
+
+everest <- as.data.frame(everest)
+
+test_mod <- glm(success ~., data = everest, family = "binomial") 
+cooksD <- cooks.distance(test_mod)
+
+
+influential <- which(cooksD > 1)
+
+names_of_influential <- names(influential)
+outliers <- everest[names_of_influential,]
+everest_clean <- everest %>% anti_join(outliers)
+everest_filtered <- data.table::data.table(everest_clean)
+```
+
+
+
+```{r}
+set.seed(123)
+
+filtered_split <- initial_split(everest_filtered, prop = .7)
+filtered_train <- training(filtered_split)
+filtered_test <- testing(filtered_split)
+
+filtered_fold <- vfold_cv(filtered_train, strata = success)
+```
+
+
+
+
+```{r}
+fil_spec <- logistic_reg() %>% 
+  set_engine("glm")
+
+fil_rec <- recipe(success ~., filtered_train) %>% 
+  step_other(citizenship, threshold = .5) #%>% 
+  #step_impute_knn(all_nominal_predictors()) %>% 
+  #step_dummy(all_nominal_predictors())
+
+fil_wf <- workflow() %>% 
+  add_model(fil_spec) %>% 
+  add_recipe(fil_rec)
+```
 
 
 
@@ -107,36 +264,175 @@ fit_xgb <- fin_xgb_wf %>%
 ```{r}
 doParallel::registerDoParallel()
 
+fil_fit <- fil_wf %>% 
+  fit(filtered_train)
 
-xgb_pred <- fit_xgb %>% 
-  predict(new_data = everest_test) 
+fil_fit
+```
 
 
-xgb_tmp <- factor(ifelse(xgb_pred == TRUE, TRUE, FALSE)) 
-caret::confusionMatrix(xgb_tmp, everest_test[["success"]])
+```{r}
+fil_pred <- fil_fit %>% 
+  predict(filtered_test)  
+
+fil_tmp <- factor(ifelse(fil_pred == TRUE, TRUE, FALSE)) 
+caret::confusionMatrix(fil_tmp, filtered_test[["success"]])
 ```
 
 
 
 
+```{r}
+fil_fit %>% extract_fit_engine() %>% car::vif()
+```
 
-
-|     Roc Auc     | Accuracy | Sensitivity | Specificity
-|---              |---       |---          |---   
-|  Lasso          |  0.8703  |    0.7939   |  0.9554     
-|  Random Forest  |  0.8756  |    0.8156   |  0.9423
-|  xgboost        |  0.8733  |    0.8132   |  0.9403
-
+Looking at GVIF we see that there is no multicollinearity present.
 
 
 
 
 
+```{r}
+fil_fit %>% extract_fit_engine() %>% car::durbinWatsonTest()
+```
+
+Since the p value is greater than .05 this means that the observations are independent
+
+
+```{r}
+car::residualPlot(fil_fit %>% extract_fit_engine())
+```
+
+Not much to go off of here
+
+
+```{r}
+plot(performance::binned_residuals(fil_fit %>% extract_fit_engine()))
+```
+
+All assumptions are met and we move forward.
 
 
 
 
 
+```{r}
+fil_fit %>% extract_fit_engine() %>% vip::vip(aesthetics = list(fill = "orange")) + 
+  ggtitle("Logistic with Assumptions met") + theme_gray(base_size = 15) 
+```
 
 
+
+# Tuned Model Specs
+
+```{r}
+#fin_xgb_wf
+
+#== Workflow ==========================================
+#Preprocessor: Recipe
+#Model: boost_tree()
+
+#== Preprocessor ======================================
+#3 Recipe Steps
+
+#• step_rose()
+#• step_other()
+#• step_dummy()
+
+#== Model =============================================
+#Boosted Tree Model Specification (classification)
+
+#Main Arguments:
+#  mtry = 9
+#  trees = 1528
+#  min_n = 36
+#  learn_rate = 0.00501190048405904
+#  loss_reduction = 1.03142212215448e-05
+
+#Engine-Specific Arguments:
+#  objective = binary:hinge
+
+#Computational engine: xgboost 
+```
+
+```{r}
+#log_fit
+
+#=== Workflow [trained] ====================================
+#Preprocessor: Recipe
+#Model: logistic_reg()
+
+#===Preprocessor===========================================
+#1 Recipe Step
+
+# step_other()
+
+#== Model =================================================
+
+#Call:  stats::glm(formula = ..y ~ ., family = stats::binomial, data = data)
+
+#Coefficients:
+#     (Intercept)              year      seasonSpring      seasonSummer      #seasonWinter              sexM               age  citizenshipother  
+#       -90.11493           0.04320           0.81122          -0.63855          -0.94062          -0.03270          -0.02610           0.17562  
+# oxygen_usedTRUE          diedTRUE       injuredTRUE  
+#         4.59497           0.01795          -1.04636  
+
+#Degrees of Freedom: 7325 Total (i.e. Null);  7315 Residual
+#Null Deviance:	    9627 
+#Residual Deviance: 4778 	AIC: 4800
+```
+
+```{r}
+#fil_fit
+
+#== Workflow [trained] ====================================
+#Preprocessor: Recipe
+#Model: logistic_reg()
+
+#== Preprocessor ==========================================
+#1 Recipe Step
+
+# step_other()
+
+#== Model =================================================
+
+#Call:  stats::glm(formula = ..y ~ ., family = stats::binomial, data = data)
+
+#Coefficients:
+#     (Intercept)              year      seasonSpring      seasonSummer      seasonWinter              sexM               age  citizenshipother  
+#       -88.91879           0.04253           0.74604          -0.67644          -0.92083           0.01051          -0.02118           0.12656  
+# oxygen_usedTRUE          diedTRUE       injuredTRUE  
+#         4.60360          -0.02636          -1.00684  
+
+#Degrees of Freedom: 7322 Total (i.e. Null);  7312 Residual
+#Null Deviance:	    9586 
+#Residual Deviance: 4764 	AIC: 4786
+```
+
+```{r}
+#fin_ran_wf
+
+#== Workflow ===============================================
+#Preprocessor: Recipe
+#Model: rand_forest()
+
+#== Preprocessor ===========================================
+#2 Recipe Steps
+
+# step_rose()
+# step_other()
+
+#== Model ==================================================
+#Random Forest Model Specification (classification)
+
+#Main Arguments:
+#  mtry = 3
+#  trees = 26
+#  min_n = 34
+
+#Engine-Specific Arguments:
+#  importance = impurity
+
+#Computational engine: ranger 
+```
 

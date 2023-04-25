@@ -1,8 +1,9 @@
 ---
 title: "EDA"
 author: "Victor M. Uribe"
-date: "2023-01-05"
-output: html_document
+date: "2023-03-19"
+output:
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -18,19 +19,194 @@ library(modeltime)
 ```
 
 
-# EDA
+
+## State the research question/goal, the statistical method(s), and the dataset. Please be specific. If they have evolved since the Research Proposal Assignment, provide the reasons for the changes
+ 
+ 
+## Goal
+
+
+|   Using the members data set from the Himalayan Climbing Expeditions data sets ($\{peaks, expeditions, members\}$) from the tidytuesday project on github. Our goal is to predict the success of reaching the summit on mount Everest. For this study we consider 3 models logistic regression, random forest, and xgboost. 
+
+
+ 
+## Present what you have learned about the advanced statistical method(s) so far. You can talk about the key concepts, terminologies, model equations, the limitations etc..
+
+
+
+## XGBoost
+
+Uses boosting to combine multiple weak models into a strong model that can make accurate predictions. It is designed to be efficient and scalable, making it suitable for large datasets, and includes features for handling missing data and preventing overfitting. 
+
+
+
+## Random Forest 
+
+Uses bagging to train multiple models on different subsets of the training data and combine their predictions to make a final prediction. This technique helps to reduce the variance of the predictions and avoid overfitting. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Discuss the problems you've encountered, especially those that have not been resolved. For the resolved problems, you can talk about how you found the solutions. 
+List all the sources you have used on the last page of the slides. Please use the APA style. 
+
+
+
+
+
+
+
+\newpage
+
+
+
+# Glancing at the data
+
+
+```{r echo=FALSE, fig.height=4, fig.width=6}
+members <- data.table::fread('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-22/members.csv') %>% filter(peak_name == "Everest") %>% select(!contains(c("id","name")))
+
+
+VIM::aggr(members, col = c("skyblue","orange"))
+```
+
+```{r}
+missvalues_visual <- 
+  members  %>%
+  transmute(
+    year = year,
+    season = season, 
+    sex = sex, 
+    age = age,
+    hired = hired,
+    success = success,
+    solo = solo,
+    injured = injured,
+    died = died,
+    citizenship = citizenship,
+    "oxygen used" = oxygen_used,
+    "injury type" = injury_type,
+    "injury height metres" = injury_height_metres,
+    "highpoint metres" = highpoint_metres,
+    "expedition role" = expedition_role,
+    "death height metres" = death_height_metres,
+    "death cause" = death_cause
+  ) %>% 
+  summarise_all(list(~is.na(.))) %>%
+  pivot_longer(everything(),
+               names_to = "variables", values_to = "missing") %>%
+  count(variables, missing) %>%
+  ggplot(aes(y = variables, x = n, fill = missing)) + geom_col() +
+  scale_fill_manual(values = c("skyblue","orange")) +
+  theme(axis.title.y = element_blank())
+
+missvalues_visual + ggtitle("Original Data") + 
+  xlab("observations") + theme_dark(base_size = 15)
+```
+
+
+```{r}
+prop_na <- function(col){
+  sum(is.na(col))/length(col)  
+}
+
+data.frame(prop = sapply(data.frame(members), prop_na) ) %>% 
+  select(prop) %>% 
+  filter(prop > 0)
+```
+
+
+\newpage
+
+
+# Cleaning 
+
+
+```{r}
+everest <- members %>% # should have an age
+  filter(age != 'NA' & peak_name == "Everest" & expedition_role == "Climber") %>% 
+  select(-c(peak_id,peak_name,expedition_id, member_id, expedition_role, death_height_metres,
+            injury_height_metres, highpoint_metres, death_cause,injury_type)) %>%
+  mutate(
+    #death_height_metres = ifelse(death_height_metres == NA, 0, death_height_metres), # issue wiith levels for some reason
+    #injury_height_metres = ifelse(injury_height_metres == NA, 0, injury_height_metres), # gives leveling issue 
+    #highpoint_metres = ifelse(highpoint_metres == 'NA', 0, highpoint_metres), # thows off the p values
+    season = factor(season),
+    sex = factor(sex),
+    #citizenship = factor(citizenship), # not significant after testing
+    #expedition_role = factor(expedition_role), # not significant after testing
+    hired = factor(hired), 
+    success = factor(success), # value being predicted
+    solo = factor(solo),
+    oxygen_used = factor(oxygen_used),
+    died = factor(died),
+    #death_cause = factor(death_cause), # issue
+    injured = factor(injured)#,
+    #injury_type = factor(injury_type) # issue with levels
+  ) 
+```
+
+```{r}
+#everest %>% dim()
+```
+
+
+```{r echo=FALSE, fig.height=4, fig.width=6}
+VIM::aggr(everest, col = c("#7a0019", "#ffcc33"))
+```
+
+
+
+
+```{r}
+everest %>% 
+  ggplot(aes(x = success)) + geom_bar(aes(y = ..count../sum(..count..)), fill = "orange") +
+  scale_y_continuous(labels = percent_format()) + 
+  ggtitle("Filtered Response") + ylab("proportion") + theme_dark(base_size = 15)
+  #theme(axis.text.x = element_text(size=15)) + 
+  #theme(axis.text.y = element_text(size=15))
+```
+
+
+
+
+\newpage
+
+
+
+
+
+# Looking at the variables 
+
+
+
+```{r}
+xtabs(~success + died, everest)
+```
+
+
 
 ## success (predictor)
 ```{r}
-ggplot(everest, aes(success)) + geom_bar()
-sum(is.na(everest$success))
+everest$success %>% table()
+#sum(is.na(everest$success))
 ```
 
 ## season
 ```{r}
-ggplot(everest, aes(season)) + geom_bar()
+everest$season %>% table()
 ```
 
+\newpage
 
 ```{r}
 everest %>% 
@@ -38,12 +214,140 @@ everest %>%
   plot_time_series(lubridate::ymd(year, truncated = 2L), age, 
                    .facet_ncol = 2, .interactive = FALSE)
 ```
+Taking a look at the seasons and ages throughout time we see that the ages remain about constant and you also see a lot more cases of scaling Mount Everest in Autumn and Spring. You also see an increase in popularity in scaling Mount Everest begining in the early 2000's
+
+
+
+\newpage
+
+
+```{r}
+ggplot(everest) + geom_boxplot(aes(x = age, y = injured, fill = injured),
+alpha = .6) + theme_dark()
+```
+From above we see that the median of those who got injured where a bit older than those who did not get injured. We also see that being older than 50 and not injured is an outlier.
+
+
+
+\newpage
+
+```{r}
+ggplot(everest) + geom_boxplot(aes(x = year, y = success, fill = success),
+alpha = .6) + theme_dark()
+```
+
+As seen above the success seemed to increase as time went on.
+
+
+\newpage
+
+
+```{r}
+ggplot(everest) + geom_boxplot(aes(x = year, y = oxygen_used, fill = success), alpha = .6) + theme_dark()
+```
+
+As seen using oxygen is pretty effective when it comes to successfully climbing Mount Everest. Meaning this should be a good predictor. 
 
 
 
 
 
 
+\newpage
+
+
+
+
+# Feauture Selection
+
+Beginning Variables: 
+
+* **expedition_id (character)** - Unique identifier for expedition
+* **member_id (character)** - Unique identifier for the person. This is not consistent across expeditions
+* **peak_id (character)** - Unique identifier for peak.
+* **peak_name (character)** - Common name for peak
+* **year (double)** - Year of expedition
+* **season (character)** - Season of expedition (Spring, Summer, etc.)
+* **sex (character)** - Sex of the person
+* **age (double)** - Age of the person. Depending on the best available data, this could be as of the summit date, the date of death, or the date of arrival at basecamp.
+* **citizenship (character)** - Citizenship of the person
+* **expedition_role (character)** - Role of the person on the expedition
+* **hired (logical)** - Whether the person was hired by the expedition
+* **highpoint_metres (double)** - Elevation highpoint of the person
+* **success (logical)** - Whether the person was successful in summitting a main peak or sub-peak, depending on the goal of expedition
+* **solo (logical)** - Whether the person attempted a solo ascent
+* **oxygen_used (logical)** - Whether the person used oxygen
+* **died (logical)** - Whether the person died
+* **death_cause (logical)** - Primary cause of death
+* **death_height_metres (double)** - Height at which the person died
+* **injured (logical)** - Whether the person was injured
+* **injury_type (character)** - Primary cause of injury
+* **injury_height_metres (double)** - Height at which the injury occurred
+
+
+
+# Variables Selected:
+
+* **success (logical)** - Whether the person was successful in summitting a main peak or sub-peak, depending on the goal of expedition
+* **year (double)** - Year of expedition
+* **season (character)** - Season of expedition (Spring, Summer, etc.)
+* **sex (character)** - Sex of the person
+* **age (double)** - Age of the person. Depending on the best available data, this could be as of the summit date, the date of death, or the date of arrival at basecamp.
+* **citizenship (character)** - Citizenship of the person
+* **expedition_role (character)** - Role of the person on the expedition
+* **hired (logical)** - Whether the person was hired by the expedition
+* **solo (logical)** - Whether the person attempted a solo ascent
+* **oxygen_used (logical)** - Whether the person used oxygen
+* **died (logical)** - Whether the person died
+* **injured (logical)** - Whether the person was injured
+
+
+\newpage
+
+## Show the important analysis results (exploratory and advanced).
+
+
+
+# Model Fits
+
+### Non filtered
+|     Roc Auc       | Accuracy | Sensitivity | Specificity
+|---                |---       |---          |---   
+| Classic Logistic  |  0.8714  |    0.7966   |  0.9547                         
+| Filtered Logistic |  0.8743  |    0.8035   |  0.9538    
+|  Random Forest    |  0.8756  |    0.8156   |  0.9423
+|  xgboost          |  0.8733  |    0.8132   |  0.9403
+
+
+### Filtered
+|     Roc Auc       | Accuracy | Sensitivity | Specificity
+|---                |---       |---          |---   
+| Classic Logistic  |  0.8529  |    0.8134   |  0.9236                         
+| Filtered Logistic |  0.8515  |    0.8091   |  0.9241     
+|   Random Forest   |  0.8491  |    0.7876   |  0.9591
+|      xgboost      |  0.8567  |    0.8233   |  0.9165
+
+
+## Note that all the models had the exact same workflow i.e
+
+```{r}
+#rec <- recipe(success ~., everest_train) %>% 
+#  step_other(expedition_role, citizenship, threshold = .05) %>% 
+#  step_impute_knn(all_nominal_predictors()) %>% 
+#  step_dummy(all_nominal_predictors())
+```
+
+Where we collapse expedition role and citizenship since most models cannot handle variables with more than 30 levels and our classic models being able to handle a lot less levels. We then impute the missing expedition roles using a knn classifier. Finally we set all factor variables into dummy variables since the xgboost model cannot take in such variables.
+
+
+
+
+
+```{r}
+library(patchwork)
+
+(v1 + v2)/(v3 + v4)
+```
 
 
 
